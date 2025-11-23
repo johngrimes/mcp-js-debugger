@@ -1,13 +1,13 @@
 {
-  "name": "webkit-debug-mcp",
+  "name": "cdp-debug-mcp",
   "version": "1.0.0",
-  "description": "MCP server exposing WebKit Inspector Protocol debugging capabilities",
+  "description": "MCP server exposing Chrome DevTools Protocol debugging capabilities",
   "author": "John Grimes",
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "webkit-debug-mcp": "dist/index.js"
+    "cdp-debug-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -18,16 +18,17 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "chrome-remote-interface": "^0.33.2",
+    "source-map": "^0.7.4",
     "uuid": "^11.0.3",
-    "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
     "@types/uuid": "^10.0.0",
-    "@types/ws": "^8.5.13",
     "@typescript-eslint/eslint-plugin": "^8.16.0",
     "@typescript-eslint/parser": "^8.16.0",
+    "devtools-protocol": "^0.0.1425012",
     "eslint": "^9.15.0",
     "typescript": "^5.7.2"
   },
