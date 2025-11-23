@@ -1,31 +1,91 @@
-# WebKit Inspector Protocol MCP Server Design Document
+# Chrome DevTools Protocol MCP Server Design Document
 
 ## Executive summary
 
-This document outlines the design for a Model Context Protocol (MCP) server that exposes debugging capabilities from the WebKit Inspector Protocol. The server will enable MCP clients to control debugging sessions, manage breakpoints, inspect execution state, and interact with JavaScript code running in WebKit-based browsers and runtimes.
+This document outlines the design for a Model Context Protocol (MCP) server that
+exposes debugging capabilities via the Chrome DevTools Protocol (CDP). The
+server will enable MCP clients to control debugging sessions, manage
+breakpoints, inspect execution state, and interact with JavaScript code running
+in Node.js, Chrome, Edge, and other CDP-compatible runtimes.
 
 ## Background
 
-The WebKit Inspector Protocol provides a JSON-RPC 2.0 based communication system for debugging JavaScript code. It operates over WebSocket connections and organizes functionality into domains, with the Debugger domain providing core debugging capabilities such as breakpoint management, execution control, and call stack inspection.
+The Chrome DevTools Protocol provides a JSON-RPC based communication system for
+debugging JavaScript code. It operates over WebSocket connections and organises
+functionality into domains (Debugger, Runtime, Network, etc.), with the Debugger
+domain providing core debugging capabilities such as breakpoint management,
+execution control, and call stack inspection.
 
-The Model Context Protocol provides a standardized way for AI assistants and development tools to interact with external systems through defined tools and resources. By creating an MCP server that exposes WebKit debugging functionality, we enable AI-assisted debugging workflows and programmatic control of debugging sessions.
+The Model Context Protocol provides a standardised way for AI assistants and
+development tools to interact with external systems through defined tools and
+resources. By creating an MCP server that exposes CDP debugging functionality,
+we enable AI-assisted debugging workflows and programmatic control of debugging
+sessions.
+
+### Why Chrome DevTools Protocol?
+
+CDP is widely supported across JavaScript runtimes and provides a
+well-documented, stable API:
+
+- **Node.js**: Native support via `--inspect` flag
+- **Chrome/Chromium**: Full support via `--remote-debugging-port`
+- **Edge**: Full support via `--devtools-server-port`
+- **Firefox**: Partial support (Nightly builds)
+- **Deno**: Native support via `--inspect` flag
+
+The protocol is actively maintained by the Chrome DevTools team with
+comprehensive documentation
+at https://chromedevtools.github.io/devtools-protocol/.
+
+### Relationship to existing chrome-devtools-mcp
+
+Google maintains an official `chrome-devtools-mcp` server at
+https://github.com/ChromeDevTools/chrome-devtools-mcp which provides CDP
+integration for AI coding assistants. That project focuses on browser automation
+and observation:
+
+**chrome-devtools-mcp capabilities:**
+
+- Input automation: click, drag, fill, hover, keyboard input
+- Navigation: page management, URL navigation, waiting
+- Performance: trace recording and analysis
+- Network: request monitoring
+- Console: message retrieval
+- Screenshots and snapshots
+
+**Capabilities not covered by chrome-devtools-mcp (our focus):**
+
+- Breakpoint management (set, remove, list, conditional)
+- Execution control (pause, resume)
+- Step-through debugging (step over, step into, step out)
+- Call stack inspection
+- Scope variable inspection
+- Variable modification during debugging
+- Exception handling configuration
+
+This project fills the debugging gap by exposing the CDP Debugger domain, which
+enables step-through debugging workflows that the existing server does not
+support.
 
 ## Goals and non-goals
 
 ### Goals
 
-- Provide MCP tools for core debugging operations: breakpoint management, execution control, and state inspection
+- Provide MCP tools for core debugging operations: breakpoint management,
+  execution control, and state inspection
+- Support source maps for debugging bundled/transpiled code with original source
+  locations
 - Support both local and remote debugging sessions
 - Enable multiple concurrent debugging sessions across different targets
-- Maintain protocol compatibility with WebKit-based browsers and runtimes
+- Maintain protocol compatibility with CDP-compliant runtimes
 - Provide clear error handling and status reporting
 - Support asynchronous debugging workflows through event notifications
 
 ### Non-goals
 
-- Reimplementing the full WebKit Inspector Protocol (only exposing the Debugger domain initially)
+- Reimplementing the full Chrome DevTools Protocol (only exposing the Debugger
+  domain initially)
 - Providing a graphical debugging interface
-- Supporting non-WebKit debugging protocols
 - Implementing source code transformation or hot reloading
 - Managing browser or runtime lifecycle (launching, closing)
 
@@ -42,20 +102,21 @@ The Model Context Protocol provides a standardized way for AI assistants and dev
          │ (stdio/HTTP)
          ▼
 ┌─────────────────────────────┐
-│   WebKit Debug MCP Server   │
+│    CDP Debug MCP Server     │
 │  ┌─────────────────────┐   │
 │  │   Session Manager   │   │
 │  └──────────┬──────────┘   │
 │             │               │
 │  ┌──────────┴──────────┐   │
-│  │  WebSocket Clients  │   │
+│  │ chrome-remote-      │   │
+│  │ interface clients   │   │
 │  └──────────┬──────────┘   │
 └─────────────┼──────────────┘
               │ WebSocket
-              │ (WebKit Inspector Protocol)
+              │ (Chrome DevTools Protocol)
               ▼
 ┌─────────────────────────────┐
-│  WebKit Runtime/Browser     │
+│  Node.js / Chrome / Edge    │
 │  ┌─────────────────────┐   │
 │  │  Inspector Backend  │   │
 │  └─────────────────────┘   │
@@ -66,21 +127,24 @@ The Model Context Protocol provides a standardized way for AI assistants and dev
 
 #### Session manager
 
-Manages multiple debugging sessions and routes commands to the appropriate WebSocket client.
+Manages multiple debugging sessions and routes commands to the appropriate CDP
+client.
 
 **Responsibilities:**
+
 - Creating and destroying debugging sessions
 - Maintaining session state and metadata
 - Routing MCP tool calls to the correct session
-- Broadcasting events from WebSocket clients to MCP clients
+- Broadcasting events from CDP clients to MCP clients
 - Handling session lifecycle and cleanup
 
 **Key data structures:**
+
 ```typescript
 interface DebugSession {
   id: string;
   targetUrl: string;
-  wsClient: WebSocketClient;
+  cdpClient: CDP.Client;
   state: SessionState;
   breakpoints: Map<string, BreakpointInfo>;
   pausedState?: PausedState;
@@ -95,46 +159,54 @@ enum SessionState {
 }
 ```
 
-#### WebSocket client
+#### CDP client (chrome-remote-interface)
 
-Handles communication with the WebKit Inspector Protocol backend.
+We use the `chrome-remote-interface` library to handle CDP communication. This
+well-maintained library provides:
 
-**Responsibilities:**
-- Establishing and maintaining WebSocket connections
-- Sending JSON-RPC commands to the backend
-- Receiving and parsing protocol responses and events
-- Managing command identifiers and response correlation
-- Handling connection errors and reconnection
+- **Promise-based API**: Async/await friendly for sequential debugging commands
+- **TypeScript support**: With devtools-protocol types
+- **Event handling**: Built-in support for CDP events
+- **Protocol domains**: Direct access to Debugger, Runtime, and other domains
 
-**Protocol interface:**
+**Example usage:**
+
 ```typescript
-interface ProtocolMessage {
-  id?: number;
-  method?: string;
-  params?: object;
-  result?: object;
-  error?: {
-    code: number;
-    message: string;
-  };
+import CDP from 'chrome-remote-interface';
+
+async function connectToTarget(host: string, port: number) {
+  const client = await CDP({host, port});
+  const {Debugger, Runtime} = client;
+
+  // Enable debugging
+  await Debugger.enable();
+
+  // Listen for paused events
+  Debugger.paused((params) => {
+    console.log('Paused:', params.reason);
+  });
+
+  return client;
 }
 ```
 
 #### MCP tool handlers
 
-Implement MCP tools that map to WebKit Inspector Protocol commands.
+Implement MCP tools that map to CDP commands.
 
 **Responsibilities:**
+
 - Validating tool parameters
-- Translating MCP tool calls to protocol commands
-- Formatting protocol responses for MCP clients
+- Translating MCP tool calls to CDP commands
+- Formatting CDP responses for MCP clients
 - Handling errors and providing meaningful feedback
 
 ## MCP interface design
 
 ### Resources
 
-The server will expose resources providing information about active debugging sessions and their state.
+The server will expose resources providing information about active debugging
+sessions and their state.
 
 #### Active sessions resource
 
@@ -145,15 +217,16 @@ The server will expose resources providing information about active debugging se
 **Description:** Lists all active debugging sessions with their current state.
 
 **Example content:**
+
 ```json
 {
   "sessions": [
     {
       "id": "session-123",
-      "targetUrl": "ws://localhost:9222/devtools/page/1",
+      "targetUrl": "ws://localhost:9229/devtools/page/1",
       "state": "paused",
       "pauseReason": "breakpoint",
-      "scriptUrl": "https://example.com/app.js",
+      "scriptUrl": "file:///app/src/index.js",
       "lineNumber": 42
     }
   ]
@@ -166,18 +239,20 @@ The server will expose resources providing information about active debugging se
 
 **MIME type:** `application/json`
 
-**Description:** Detailed information about a specific debugging session, including breakpoints and current execution state.
+**Description:** Detailed information about a specific debugging session,
+including breakpoints and current execution state.
 
 **Example content:**
+
 ```json
 {
   "id": "session-123",
-  "targetUrl": "ws://localhost:9222/devtools/page/1",
+  "targetUrl": "ws://localhost:9229/devtools/page/1",
   "state": "paused",
   "breakpoints": [
     {
       "id": "bp-1",
-      "scriptUrl": "https://example.com/app.js",
+      "scriptUrl": "file:///app/src/index.js",
       "lineNumber": 42,
       "condition": "x > 10",
       "enabled": true
@@ -186,7 +261,7 @@ The server will expose resources providing information about active debugging se
   "callStack": [
     {
       "functionName": "processData",
-      "scriptUrl": "https://example.com/app.js",
+      "scriptUrl": "file:///app/src/index.js",
       "lineNumber": 42,
       "columnNumber": 12
     }
@@ -198,14 +273,15 @@ The server will expose resources providing information about active debugging se
 
 #### connect_debugger
 
-Establishes a new debugging session by connecting to a WebKit Inspector Protocol endpoint.
+Establishes a new debugging session by connecting to a CDP endpoint.
 
 **Parameters:**
+
 ```json
 {
   "websocket_url": {
     "type": "string",
-    "description": "WebSocket URL for the WebKit Inspector endpoint (e.g., ws://localhost:9222/devtools/page/1)",
+    "description": "WebSocket URL for the CDP endpoint (e.g., ws://localhost:9229/devtools/page/1)",
     "required": true
   },
   "session_name": {
@@ -217,23 +293,25 @@ Establishes a new debugging session by connecting to a WebKit Inspector Protocol
 ```
 
 **Returns:**
+
 ```json
 {
   "session_id": "session-123",
   "state": "connected",
   "target_info": {
-    "title": "Example Page",
-    "url": "https://example.com"
+    "title": "Node.js Script",
+    "url": "file:///app/src/index.js"
   }
 }
 ```
 
 **Example usage:**
+
 ```json
 {
   "name": "connect_debugger",
   "arguments": {
-    "websocket_url": "ws://localhost:9222/devtools/page/1",
+    "websocket_url": "ws://localhost:9229/devtools/page/1",
     "session_name": "Main app debugging"
   }
 }
@@ -244,6 +322,7 @@ Establishes a new debugging session by connecting to a WebKit Inspector Protocol
 Closes an active debugging session.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -255,6 +334,7 @@ Closes an active debugging session.
 ```
 
 **Returns:**
+
 ```json
 {
   "success": true,
@@ -267,6 +347,7 @@ Closes an active debugging session.
 Sets a breakpoint at a specific location in the code.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -293,17 +374,12 @@ Sets a breakpoint at a specific location in the code.
     "type": "string",
     "description": "Optional condition that must be true for the breakpoint to trigger",
     "required": false
-  },
-  "ignore_count": {
-    "type": "integer",
-    "description": "Number of times to ignore this breakpoint before stopping",
-    "required": false,
-    "default": 0
   }
 }
 ```
 
 **Returns:**
+
 ```json
 {
   "breakpoint_id": "bp-456",
@@ -318,12 +394,13 @@ Sets a breakpoint at a specific location in the code.
 ```
 
 **Example usage:**
+
 ```json
 {
   "name": "set_breakpoint",
   "arguments": {
     "session_id": "session-123",
-    "url": "https://example.com/app.js",
+    "url": "file:///app/src/index.js",
     "line_number": 42,
     "condition": "count > 100"
   }
@@ -335,6 +412,7 @@ Sets a breakpoint at a specific location in the code.
 Removes a previously set breakpoint.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -351,6 +429,7 @@ Removes a previously set breakpoint.
 ```
 
 **Returns:**
+
 ```json
 {
   "success": true,
@@ -363,6 +442,7 @@ Removes a previously set breakpoint.
 Lists all breakpoints in a debugging session.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -374,12 +454,13 @@ Lists all breakpoints in a debugging session.
 ```
 
 **Returns:**
+
 ```json
 {
   "breakpoints": [
     {
       "id": "bp-456",
-      "url": "https://example.com/app.js",
+      "url": "file:///app/src/index.js",
       "line_number": 42,
       "column_number": 0,
       "condition": "count > 100",
@@ -394,6 +475,7 @@ Lists all breakpoints in a debugging session.
 Resumes execution after being paused.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -405,6 +487,7 @@ Resumes execution after being paused.
 ```
 
 **Returns:**
+
 ```json
 {
   "success": true,
@@ -417,6 +500,7 @@ Resumes execution after being paused.
 Steps over the current statement to the next line.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -428,6 +512,7 @@ Steps over the current statement to the next line.
 ```
 
 **Returns:**
+
 ```json
 {
   "success": true,
@@ -440,6 +525,7 @@ Steps over the current statement to the next line.
 Steps into a function call if present, otherwise steps to the next statement.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -451,6 +537,7 @@ Steps into a function call if present, otherwise steps to the next statement.
 ```
 
 **Returns:**
+
 ```json
 {
   "success": true,
@@ -463,6 +550,7 @@ Steps into a function call if present, otherwise steps to the next statement.
 Steps out of the current function to the calling frame.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -474,6 +562,7 @@ Steps out of the current function to the calling frame.
 ```
 
 **Returns:**
+
 ```json
 {
   "success": true,
@@ -486,6 +575,7 @@ Steps out of the current function to the calling frame.
 Pauses execution at the next possible opportunity.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -497,6 +587,7 @@ Pauses execution at the next possible opportunity.
 ```
 
 **Returns:**
+
 ```json
 {
   "success": true,
@@ -509,6 +600,7 @@ Pauses execution at the next possible opportunity.
 Retrieves the current call stack when execution is paused.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -526,6 +618,7 @@ Retrieves the current call stack when execution is paused.
 ```
 
 **Returns:**
+
 ```json
 {
   "call_frames": [
@@ -533,7 +626,7 @@ Retrieves the current call stack when execution is paused.
       "call_frame_id": "frame-1",
       "function_name": "processData",
       "script_id": "15",
-      "url": "https://example.com/app.js",
+      "url": "file:///app/src/index.js",
       "line_number": 42,
       "column_number": 12,
       "this": {
@@ -553,16 +646,18 @@ Retrieves the current call stack when execution is paused.
   ],
   "async_stack_trace": {
     "description": "Promise.then",
-    "call_frames": [...]
+    "call_frames": []
   }
 }
 ```
 
 #### evaluate_expression
 
-Evaluates a JavaScript expression in the context of a specific call frame or the global context.
+Evaluates a JavaScript expression in the context of a specific call frame or the
+global context.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -590,6 +685,7 @@ Evaluates a JavaScript expression in the context of a specific call frame or the
 ```
 
 **Returns:**
+
 ```json
 {
   "result": {
@@ -602,6 +698,7 @@ Evaluates a JavaScript expression in the context of a specific call frame or the
 ```
 
 **Example usage:**
+
 ```json
 {
   "name": "evaluate_expression",
@@ -618,6 +715,7 @@ Evaluates a JavaScript expression in the context of a specific call frame or the
 Retrieves all variables in a specific scope.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -640,6 +738,7 @@ Retrieves all variables in a specific scope.
 ```
 
 **Returns:**
+
 ```json
 {
   "variables": [
@@ -667,6 +766,7 @@ Retrieves all variables in a specific scope.
 Modifies the value of a variable in a specific call frame.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -698,6 +798,7 @@ Modifies the value of a variable in a specific call frame.
 ```
 
 **Returns:**
+
 ```json
 {
   "success": true
@@ -709,6 +810,7 @@ Modifies the value of a variable in a specific call frame.
 Configures whether the debugger should pause on exceptions.
 
 **Parameters:**
+
 ```json
 {
   "session_id": {
@@ -718,7 +820,11 @@ Configures whether the debugger should pause on exceptions.
   },
   "state": {
     "type": "string",
-    "enum": ["none", "uncaught", "all"],
+    "enum": [
+      "none",
+      "uncaught",
+      "all"
+    ],
     "description": "When to pause on exceptions: none (never), uncaught (only uncaught exceptions), all (all exceptions)",
     "required": true
   }
@@ -726,10 +832,145 @@ Configures whether the debugger should pause on exceptions.
 ```
 
 **Returns:**
+
 ```json
 {
   "success": true,
   "state": "uncaught"
+}
+```
+
+#### get_original_location
+
+Maps a generated code location back to the original source location using source
+maps. This is essential for debugging bundled or transpiled code (TypeScript,
+Babel, webpack, etc.).
+
+**Parameters:**
+
+```json
+{
+  "session_id": {
+    "type": "string",
+    "description": "ID of the debugging session",
+    "required": true
+  },
+  "script_id": {
+    "type": "string",
+    "description": "ID of the script containing the generated code",
+    "required": true
+  },
+  "line_number": {
+    "type": "integer",
+    "description": "Line number in the generated code (0-based)",
+    "required": true
+  },
+  "column_number": {
+    "type": "integer",
+    "description": "Column number in the generated code (0-based)",
+    "required": true
+  }
+}
+```
+
+**Returns:**
+
+```json
+{
+  "has_source_map": true,
+  "original": {
+    "source_url": "src/components/Button.tsx",
+    "line_number": 42,
+    "column_number": 8,
+    "name": "handleClick"
+  },
+  "generated": {
+    "script_id": "15",
+    "line_number": 1847,
+    "column_number": 24
+  }
+}
+```
+
+#### get_script_source
+
+Retrieves the source code for a script, with optional source map resolution to
+return the original source instead of the generated code.
+
+**Parameters:**
+
+```json
+{
+  "session_id": {
+    "type": "string",
+    "description": "ID of the debugging session",
+    "required": true
+  },
+  "script_id": {
+    "type": "string",
+    "description": "ID of the script",
+    "required": true
+  },
+  "prefer_original": {
+    "type": "boolean",
+    "description": "If true and a source map exists, return the original source",
+    "required": false,
+    "default": true
+  }
+}
+```
+
+**Returns:**
+
+```json
+{
+  "source": "export function handleClick(event: MouseEvent) {\n  ...",
+  "source_url": "src/components/Button.tsx",
+  "is_original": true,
+  "source_map_url": "bundle.js.map"
+}
+```
+
+#### list_scripts
+
+Lists all scripts loaded in the debugging session, including source map
+information where available.
+
+**Parameters:**
+
+```json
+{
+  "session_id": {
+    "type": "string",
+    "description": "ID of the debugging session",
+    "required": true
+  },
+  "include_internal": {
+    "type": "boolean",
+    "description": "Include internal/node_modules scripts",
+    "required": false,
+    "default": false
+  }
+}
+```
+
+**Returns:**
+
+```json
+{
+  "scripts": [
+    {
+      "script_id": "15",
+      "url": "file:///app/dist/bundle.js",
+      "source_map_url": "bundle.js.map",
+      "original_sources": [
+        "src/index.tsx",
+        "src/components/Button.tsx",
+        "src/utils/helpers.ts"
+      ],
+      "is_internal": false
+    }
+  ]
 }
 ```
 
@@ -739,9 +980,11 @@ The server will provide prompt templates to guide common debugging workflows.
 
 #### analyze_crash
 
-Guides analysis of a crashed or paused application by examining the call stack and local variables.
+Guides analysis of a crashed or paused application by examining the call stack
+and local variables.
 
 **Prompt:**
+
 ```
 I'll help you analyze why execution stopped. Let me:
 
@@ -760,6 +1003,7 @@ Would you like me to proceed with this analysis?
 Helps investigate why a specific condition might be true or false.
 
 **Prompt:**
+
 ```
 I'll evaluate this expression across the current call stack to understand its state:
 
@@ -780,57 +1024,66 @@ Would you like to proceed?
 **Language:** TypeScript/Node.js
 
 **Key dependencies:**
+
 - `@modelcontextprotocol/sdk`: MCP server implementation
-- `ws`: WebSocket client library
+- `chrome-remote-interface`: CDP client library
+- `source-map`: Source map parsing and position mapping
 - `zod`: Schema validation for parameters
 - `uuid`: Unique identifier generation
 
-### WebSocket connection management
+### CDP client integration
 
-The server will implement a robust WebSocket client with the following features:
+The server uses `chrome-remote-interface` for all CDP communication:
 
-**Connection lifecycle:**
-1. Initial connection with timeout
-2. Protocol handshake (sending `Debugger.enable` command)
-3. Active state monitoring with heartbeat
-4. Graceful disconnection
-5. Error handling and reconnection with exponential backoff
+**Connection management:**
 
-**Command correlation:**
 ```typescript
-class WebSocketClient {
-  private commandId = 1;
-  private pendingCommands = new Map<number, PendingCommand>();
-  
-  async sendCommand(method: string, params?: object): Promise<any> {
-    const id = this.commandId++;
-    const message = { id, method, params };
-    
-    return new Promise((resolve, reject) => {
-      this.pendingCommands.set(id, { resolve, reject, timeout: setTimeout(...) });
-      this.ws.send(JSON.stringify(message));
+import CDP from 'chrome-remote-interface';
+
+class CDPClientWrapper {
+  private client: CDP.Client | null = null;
+
+  async connect(host: string, port: number): Promise<void> {
+    this.client = await CDP({host, port});
+
+    // Enable required domains
+    await this.client.Debugger.enable();
+    await this.client.Runtime.enable();
+
+    // Set up event handlers
+    this.setupEventHandlers();
+  }
+
+  private setupEventHandlers(): void {
+    if (!this.client) return;
+
+    this.client.Debugger.paused((params) => {
+      this.handlePaused(params);
+    });
+
+    this.client.Debugger.resumed(() => {
+      this.handleResumed();
+    });
+
+    this.client.Debugger.scriptParsed((params) => {
+      this.handleScriptParsed(params);
     });
   }
-  
-  private handleMessage(data: string) {
-    const message = JSON.parse(data);
-    
-    if (message.id !== undefined) {
-      // Response to a command
-      const pending = this.pendingCommands.get(message.id);
-      if (pending) {
-        clearTimeout(pending.timeout);
-        this.pendingCommands.delete(message.id);
-        
-        if (message.error) {
-          pending.reject(new ProtocolError(message.error));
-        } else {
-          pending.resolve(message.result);
-        }
-      }
-    } else if (message.method) {
-      // Event notification
-      this.handleEvent(message.method, message.params);
+
+  async setBreakpoint(url: string, lineNumber: number, condition?: string) {
+    if (!this.client) throw new Error('Not connected');
+
+    return this.client.Debugger.setBreakpointByUrl({
+      url,
+      lineNumber,
+      condition
+    });
+  }
+
+  async close(): Promise<void> {
+    if (this.client) {
+      await this.client.close();
+      this.client = null;
     }
   }
 }
@@ -838,58 +1091,210 @@ class WebSocketClient {
 
 ### Event handling
 
-The server will listen for key WebKit Inspector Protocol events and translate them into notifications or state updates:
+The server listens for key CDP events and translates them into notifications or
+state updates:
 
 **Critical events:**
+
 - `Debugger.paused`: Execution paused (update session state, cache call frames)
 - `Debugger.resumed`: Execution resumed (clear paused state)
 - `Debugger.scriptParsed`: New script loaded (track available scripts)
-- `Debugger.breakpointResolved`: Breakpoint location resolved (update breakpoint info)
+- `Debugger.breakpointResolved`: Breakpoint location resolved (update breakpoint
+  info)
 
 **Event processing:**
+
 ```typescript
-private handleEvent(method: string, params: any) {
-  switch (method) {
-    case 'Debugger.paused':
-      this.session.state = SessionState.PAUSED;
-      this.session.pausedState = {
-        reason: params.reason,
-        callFrames: params.callFrames,
-        asyncStackTrace: params.asyncStackTrace,
-        data: params.data
-      };
-      this.notifyMCPClient({
-        type: 'execution_paused',
-        sessionId: this.session.id,
-        reason: params.reason
-      });
-      break;
-      
-    case 'Debugger.resumed':
-      this.session.state = SessionState.RUNNING;
-      this.session.pausedState = undefined;
-      this.notifyMCPClient({
-        type: 'execution_resumed',
-        sessionId: this.session.id
-      });
-      break;
-      
-    // Additional event handlers...
+private
+handlePaused(params
+:
+Protocol.Debugger.PausedEvent
+):
+void {
+  this.session.state = SessionState.PAUSED;
+  this.session.pausedState = {
+    reason: params.reason,
+    callFrames: params.callFrames,
+    asyncStackTrace: params.asyncStackTrace,
+    data: params.data
+  };
+
+  this.notifyMCPClient({
+    type: 'execution_paused',
+    sessionId: this.session.id,
+    reason: params.reason,
+    hitBreakpoints: params.hitBreakpoints
+  });
+}
+
+private
+handleResumed()
+:
+void {
+  this.session.state = SessionState.RUNNING;
+  this.session.pausedState = undefined;
+
+  this.notifyMCPClient({
+    type: 'execution_resumed',
+    sessionId: this.session.id
+  });
+}
+```
+
+### Source map support
+
+The server implements source map support to enable debugging of bundled and
+transpiled code. When working with tools like webpack, esbuild, TypeScript, or
+Babel, source maps allow the debugger to display original source locations
+instead of the generated code.
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     CDP Debug MCP Server                     │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │               Source Map Manager                     │   │
+│  │  ┌─────────────────┐  ┌──────────────────────────┐ │   │
+│  │  │ Source Map      │  │ Position Mapping Cache   │ │   │
+│  │  │ Consumer Cache  │  │ (generated → original)   │ │   │
+│  │  └─────────────────┘  └──────────────────────────┘ │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Source map discovery:**
+
+When a script is parsed (`Debugger.scriptParsed` event), the server checks for
+source map references:
+
+1. **Inline source maps**: Data URLs embedded in the script (e.g.,
+   `//# sourceMappingURL=data:application/json;base64,...`)
+2. **External source maps**: Referenced via URL (e.g.,
+   `//# sourceMappingURL=bundle.js.map`)
+3. **X-SourceMap header**: HTTP response header for remotely loaded scripts
+
+**Source map manager implementation:**
+
+```typescript
+import {SourceMapConsumer} from 'source-map';
+
+interface ScriptInfo {
+  scriptId: string;
+  url: string;
+  sourceMapUrl?: string;
+  sourceMapConsumer?: SourceMapConsumer;
+  originalSources?: string[];
+}
+
+class SourceMapManager {
+  private scripts = new Map<string, ScriptInfo>();
+  private consumers = new Map<string, SourceMapConsumer>();
+
+  async handleScriptParsed(params: Protocol.Debugger.ScriptParsedEvent) {
+    const scriptInfo: ScriptInfo = {
+      scriptId: params.scriptId,
+      url: params.url,
+      sourceMapUrl: params.sourceMapURL
+    };
+
+    if (params.sourceMapURL) {
+      await this.loadSourceMap(scriptInfo);
+    }
+
+    this.scripts.set(params.scriptId, scriptInfo);
+  }
+
+  private async loadSourceMap(scriptInfo: ScriptInfo): Promise<void> {
+    if (!scriptInfo.sourceMapUrl) return;
+
+    try {
+      const sourceMapJson = await this.fetchSourceMap(scriptInfo.sourceMapUrl);
+      const consumer = await new SourceMapConsumer(sourceMapJson);
+      scriptInfo.sourceMapConsumer = consumer;
+      scriptInfo.originalSources = consumer.sources;
+      this.consumers.set(scriptInfo.scriptId, consumer);
+    } catch (error) {
+      // Source map unavailable; continue with generated code
+    }
+  }
+
+  getOriginalLocation(
+    scriptId: string,
+    line: number,
+    column: number
+  ): OriginalLocation | null {
+    const consumer = this.consumers.get(scriptId);
+    if (!consumer) return null;
+
+    const original = consumer.originalPositionFor({line, column});
+    if (!original.source) return null;
+
+    return {
+      source: original.source,
+      line: original.line,
+      column: original.column,
+      name: original.name
+    };
+  }
+
+  async getOriginalSource(
+    scriptId: string,
+    sourceUrl: string
+  ): Promise<string | null> {
+    const consumer = this.consumers.get(scriptId);
+    if (!consumer) return null;
+
+    return consumer.sourceContentFor(sourceUrl) || null;
   }
 }
 ```
+
+**Call stack mapping:**
+
+When execution pauses, call stack frames are automatically enriched with
+original source locations:
+
+```typescript
+interface EnrichedCallFrame {
+  // Generated location (from CDP)
+  generatedLocation: {
+    scriptId: string;
+    lineNumber: number;
+    columnNumber: number;
+  };
+  // Original location (if source map available)
+  originalLocation?: {
+    sourceUrl: string;
+    lineNumber: number;
+    columnNumber: number;
+    functionName?: string;
+  };
+}
+```
+
+**Breakpoint mapping:**
+
+When setting breakpoints via `set_breakpoint`, the server:
+
+1. Accepts original source URLs and line numbers
+2. Maps to generated code locations using source maps
+3. Sets the breakpoint at the generated location
+4. Returns both original and generated location information
 
 ### Error handling
 
 The server will implement comprehensive error handling:
 
 **Error categories:**
+
 1. **Connection errors**: WebSocket connection failures, timeouts
 2. **Protocol errors**: Invalid commands, malformed responses
 3. **Session errors**: Invalid session ID, session not in correct state
 4. **Parameter errors**: Invalid tool parameters, missing required fields
 
 **Error response format:**
+
 ```typescript
 interface ErrorResponse {
   error: {
@@ -907,24 +1312,27 @@ interface ErrorResponse {
 ```
 
 **Error codes:**
+
 - `SESSION_NOT_FOUND`: Specified session ID doesn't exist
 - `SESSION_INVALID_STATE`: Operation not valid in current session state
-- `CONNECTION_FAILED`: Failed to establish WebSocket connection
-- `PROTOCOL_ERROR`: WebKit Inspector Protocol returned an error
+- `CONNECTION_FAILED`: Failed to establish connection
+- `PROTOCOL_ERROR`: CDP returned an error
 - `INVALID_PARAMETERS`: Tool parameters are invalid
 - `TIMEOUT`: Operation timed out
 
-### State synchronization
+### State synchronisation
 
 The server maintains a local cache of debugging state to improve responsiveness:
 
 **Cached state:**
+
 - Active breakpoints with their resolved locations
 - Current paused state (call stack, reason, data)
 - Script information (ID, URL, source availability)
 - Session connection status
 
 **Cache invalidation:**
+
 - Breakpoints: Invalidate on `breakpointResolved` events
 - Paused state: Clear on `resumed` events
 - Scripts: Update on `scriptParsed` events
@@ -933,14 +1341,17 @@ The server maintains a local cache of debugging state to improve responsiveness:
 
 ### WebSocket URL validation
 
-The server will validate WebSocket URLs to prevent connection to malicious endpoints:
+The server will validate WebSocket URLs to prevent connection to malicious
+endpoints:
 
 **Validation rules:**
+
 1. URL must use `ws://` or `wss://` scheme
 2. Localhost connections: Allow any port
 3. Remote connections: Require explicit allowlist or confirmation
 
 **Configuration:**
+
 ```json
 {
   "allowed_hosts": [
@@ -957,6 +1368,7 @@ The server will validate WebSocket URLs to prevent connection to malicious endpo
 The server will not expose destructive operations beyond debugging scope:
 
 **Restricted operations:**
+
 - No access to file system operations
 - No ability to execute arbitrary system commands
 - No access to network operations beyond debugging protocol
@@ -967,6 +1379,7 @@ The server will not expose destructive operations beyond debugging scope:
 If debugging targets require authentication:
 
 **Approach:**
+
 - Credentials passed through MCP tool parameters
 - Not logged or persisted by the server
 - Transmitted only over secure WebSocket connections (wss://)
@@ -976,34 +1389,40 @@ If debugging targets require authentication:
 ### Unit tests
 
 **Coverage areas:**
+
 - Session manager: Session creation, routing, cleanup
-- WebSocket client: Message handling, command correlation, event processing
+- CDP client wrapper: Connection management, command execution
 - Tool handlers: Parameter validation, protocol command generation
 - State management: Cache updates, invalidation
 
 **Testing approach:**
-- Mock WebSocket connections for predictable behavior
+
+- Mock CDP client for predictable behaviour
 - Test error conditions and edge cases
 - Validate protocol message formatting
 
 ### Integration tests
 
 **Test scenarios:**
-1. Connect to a real WebKit debugging target
+
+1. Connect to a real Node.js debugging target
 2. Set breakpoints and verify they trigger
 3. Step through code execution
 4. Evaluate expressions in different scopes
 5. Handle disconnections and reconnections
 
 **Test environment:**
-- Use Bun with `--inspect` flag as a debugging target
+
+- Use Node.js with `--inspect` flag as a debugging target
 - Automated script to trigger breakpoints
 - Verify server state matches protocol events
 
 ### End-to-end tests
 
 **Workflow tests:**
-1. Full debugging session: Connect, set breakpoints, pause, inspect, resume, disconnect
+
+1. Full debugging session: Connect, set breakpoints, pause, inspect, resume,
+   disconnect
 2. Multiple concurrent sessions
 3. Error handling: Invalid commands, connection failures
 4. Resource queries during active debugging
@@ -1012,29 +1431,29 @@ If debugging targets require authentication:
 
 ### Configuration
 
-The server will support configuration through environment variables and a config file:
+The server will support configuration through environment variables and a config
+file:
 
 **Configuration options:**
+
 ```typescript
 interface ServerConfig {
   // MCP transport
   transport: 'stdio' | 'http';
   httpPort?: number;
-  
-  // WebSocket settings
+
+  // CDP settings
   connectionTimeout: number;
   commandTimeout: number;
-  reconnectAttempts: number;
-  reconnectDelay: number;
-  
+
   // Security
   allowedHosts: string[];
   requireConfirmationForRemote: boolean;
-  
+
   // Session management
   maxConcurrentSessions: number;
   sessionIdleTimeout: number;
-  
+
   // Logging
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   logProtocolMessages: boolean;
@@ -1046,12 +1465,14 @@ interface ServerConfig {
 Structured logging for debugging and monitoring:
 
 **Log levels:**
+
 - `debug`: Protocol messages, detailed state changes
 - `info`: Session lifecycle events, tool invocations
 - `warn`: Recoverable errors, retries
 - `error`: Unrecoverable errors, crashes
 
 **Log format:**
+
 ```typescript
 interface LogEntry {
   timestamp: string;
@@ -1065,119 +1486,109 @@ interface LogEntry {
 
 ### Performance considerations
 
-**Optimization strategies:**
+**Optimisation strategies:**
+
 1. Cache frequently accessed data (call stacks, breakpoints)
 2. Batch protocol commands when possible
 3. Limit call stack depth in responses to reduce payload size
 4. Implement request throttling to prevent overload
-5. Use connection pooling for multiple targets on same host
 
 **Resource limits:**
+
 - Maximum concurrent sessions: 10
 - Maximum breakpoints per session: 100
 - Maximum expression evaluation length: 10,000 characters
 - WebSocket message size limit: 10 MB
 
-## Future enhancements
-
-### Phase 2 features
-
-**Advanced breakpoint types:**
-- Conditional breakpoints with hit count
-- Logpoint-style breakpoints that output without pausing
-- Data breakpoints (watch expressions)
-
-**Source mapping:**
-- Support for source maps in bundled/transpiled code
-- Map breakpoints from original source to generated code
-- Display original source in call stacks
-
-**Performance profiling:**
-- Expose Timeline/Profiler domain for performance analysis
-- CPU and memory profiling tools
-- Timeline recording and playback
-
-### Phase 3 features
-
-**Multi-target debugging:**
-- Debug multiple pages/workers simultaneously
-- Coordinate breakpoints across targets
-- Unified view of distributed execution
-
-**Advanced inspection:**
-- DOM inspection tools
-- Network request monitoring
-- Console message capture
-
-**Debugging workflows:**
-- Saved debugging configurations
-- Automated debugging scripts
-- Integration with test frameworks
-
 ## Success metrics
 
 **Functional metrics:**
-- Successfully connect to WebKit debugging targets
+
+- Successfully connect to CDP debugging targets
 - Set and trigger breakpoints with 100% reliability
 - Execute stepping operations within 100ms
 - Evaluate expressions and return results within 200ms
 
 **Reliability metrics:**
-- Handle connection failures with automatic reconnection
+
+- Handle connection failures gracefully
 - Recover from protocol errors without session loss
 - Support 10+ concurrent debugging sessions
 
 **Usability metrics:**
+
 - Clear error messages for all failure modes
 - Complete documentation with examples
 - MCP clients can implement common debugging workflows
 
 ## Appendices
 
-### Appendix A: WebKit Inspector Protocol reference
+### Appendix A: Chrome DevTools Protocol reference
 
 Key protocol domains and commands used by this implementation:
 
 **Debugger domain:**
+
 - `Debugger.enable`: Enable debugging
 - `Debugger.disable`: Disable debugging
-- `Debugger.setBreakpointByUrl`: Set breakpoint
+- `Debugger.setBreakpointByUrl`: Set breakpoint by URL (persists across reloads)
+- `Debugger.setBreakpoint`: Set breakpoint by script ID
 - `Debugger.removeBreakpoint`: Remove breakpoint
 - `Debugger.pause`: Pause execution
 - `Debugger.resume`: Resume execution
 - `Debugger.stepOver`: Step over
 - `Debugger.stepInto`: Step into
 - `Debugger.stepOut`: Step out
-- `Debugger.evaluateOnCallFrame`: Evaluate expression
+- `Debugger.evaluateOnCallFrame`: Evaluate expression in call frame
+- `Debugger.setVariableValue`: Modify variable value
 - `Debugger.setPauseOnExceptions`: Configure exception pausing
 
 **Events:**
+
 - `Debugger.paused`: Execution paused
 - `Debugger.resumed`: Execution resumed
 - `Debugger.scriptParsed`: Script loaded
 - `Debugger.breakpointResolved`: Breakpoint location resolved
 
+**Runtime domain (supplementary):**
+
+- `Runtime.evaluate`: Evaluate expression in global context
+- `Runtime.getProperties`: Get object properties
+- `Runtime.callFunctionOn`: Call function on remote object
+
+Full documentation: https://chromedevtools.github.io/devtools-protocol/
+
 ### Appendix B: Example debugging workflow
 
-**Scenario:** Debug a function that processes user data
+**Scenario:** Debug a Node.js application
+
+**Step 0: Start Node.js with debugging enabled**
+
+```bash
+node --inspect=9229 app.js
+# Or pause at start:
+node --inspect-brk=9229 app.js
+```
 
 **Step 1: Connect to debugging target**
+
 ```json
 {
   "name": "connect_debugger",
   "arguments": {
-    "websocket_url": "ws://localhost:9222/devtools/page/1"
+    "websocket_url": "ws://localhost:9229/devtools/page/1"
   }
 }
 ```
 
 **Step 2: Set breakpoint in target function**
+
 ```json
 {
   "name": "set_breakpoint",
   "arguments": {
     "session_id": "session-123",
-    "url": "https://example.com/processor.js",
+    "url": "file:///app/src/processor.js",
     "line_number": 15,
     "condition": "userData.length > 0"
   }
@@ -1188,6 +1599,7 @@ Key protocol domains and commands used by this implementation:
 (Server sends notification when paused)
 
 **Step 4: Examine call stack**
+
 ```json
 {
   "name": "get_call_stack",
@@ -1199,6 +1611,7 @@ Key protocol domains and commands used by this implementation:
 ```
 
 **Step 5: Evaluate expression to check data**
+
 ```json
 {
   "name": "evaluate_expression",
@@ -1211,6 +1624,7 @@ Key protocol domains and commands used by this implementation:
 ```
 
 **Step 6: Step through problematic code**
+
 ```json
 {
   "name": "step_over",
@@ -1221,6 +1635,7 @@ Key protocol domains and commands used by this implementation:
 ```
 
 **Step 7: Resume execution after identifying issue**
+
 ```json
 {
   "name": "resume_execution",
@@ -1232,25 +1647,27 @@ Key protocol domains and commands used by this implementation:
 
 ### Appendix C: Protocol message examples
 
-**Setting a breakpoint (request):**
+**Setting a breakpoint (CDP command):**
+
 ```json
 {
   "id": 1,
   "method": "Debugger.setBreakpointByUrl",
   "params": {
     "lineNumber": 42,
-    "url": "https://example.com/app.js",
+    "url": "file:///app/src/index.js",
     "condition": "count > 10"
   }
 }
 ```
 
-**Setting a breakpoint (response):**
+**Setting a breakpoint (CDP response):**
+
 ```json
 {
   "id": 1,
   "result": {
-    "breakpointId": "1:42:0:https://example.com/app.js",
+    "breakpointId": "1:42:0:file:///app/src/index.js",
     "locations": [
       {
         "scriptId": "15",
@@ -1263,6 +1680,7 @@ Key protocol domains and commands used by this implementation:
 ```
 
 **Paused event:**
+
 ```json
 {
   "method": "Debugger.paused",
@@ -1283,6 +1701,20 @@ Key protocol domains and commands used by this implementation:
               "type": "object",
               "objectId": "{\"injectedScriptId\":1,\"id\":1}"
             }
+          },
+          {
+            "type": "closure",
+            "object": {
+              "type": "object",
+              "objectId": "{\"injectedScriptId\":1,\"id\":2}"
+            }
+          },
+          {
+            "type": "global",
+            "object": {
+              "type": "object",
+              "objectId": "{\"injectedScriptId\":1,\"id\":3}"
+            }
           }
         ],
         "this": {
@@ -1292,22 +1724,40 @@ Key protocol domains and commands used by this implementation:
       }
     ],
     "reason": "breakpoint",
-    "data": {
-      "breakpointId": "1:42:0:https://example.com/app.js"
-    }
+    "hitBreakpoints": [
+      "1:42:0:file:///app/src/index.js"
+    ]
   }
 }
 ```
 
+### Appendix D: Supported runtimes
+
+| Runtime | Debug flag                | Default port | Notes                 |
+|---------|---------------------------|--------------|-----------------------|
+| Node.js | `--inspect`               | 9229         | Full CDP support      |
+| Node.js | `--inspect-brk`           | 9229         | Pauses at first line  |
+| Chrome  | `--remote-debugging-port` | 9222         | Full CDP support      |
+| Edge    | `--devtools-server-port`  | 9222         | Full CDP support      |
+| Deno    | `--inspect`               | 9229         | CDP support           |
+| Firefox | `--remote-debugging-port` | 9222         | Partial CDP (Nightly) |
+
 ## Document history
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | 2025-11-23 | Design Team | Initial design document |
+| Version | Date       | Author      | Changes                                                           |
+|---------|------------|-------------|-------------------------------------------------------------------|
+| 1.0     | 2025-11-23 | John Grimes | Initial design document (WebKit Inspector Protocol)               |
+| 2.0     | 2025-11-24 | John Grimes | Migrated to Chrome DevTools Protocol with chrome-remote-interface |
+| 2.1     | 2025-11-24 | John Grimes | Added source map support; removed future enhancements section     |
 
 ## References
 
-- WebKit Inspector Protocol documentation
+- Chrome DevTools Protocol
+  documentation: https://chromedevtools.github.io/devtools-protocol/
+- chrome-remote-interface
+  library: https://github.com/cyrus-and/chrome-remote-interface
+- chrome-devtools-mcp (Google's official CDP MCP
+  server): https://github.com/ChromeDevTools/chrome-devtools-mcp
 - Model Context Protocol specification
 - JSON-RPC 2.0 specification
 - WebSocket Protocol (RFC 6455)
