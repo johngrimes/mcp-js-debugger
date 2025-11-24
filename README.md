@@ -1,6 +1,7 @@
 # MCP JS Debugger
 
-An MCP (Model Context Protocol) server that exposes Chrome DevTools Protocol
+An MCP (Model Context Protocol) server that exposes
+[Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/)
 debugging capabilities, enabling AI assistants to debug JavaScript and
 TypeScript applications.
 
