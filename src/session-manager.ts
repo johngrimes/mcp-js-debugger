@@ -744,9 +744,16 @@ export class SessionManager {
             async (url) => {
               // Fetch source map from URL.
               try {
-                const response = await fetch(url);
-                if (!response.ok) return null;
-                return response.text();
+                if (url.startsWith('file://')) {
+                  // Read from filesystem for file:// URLs.
+                  const filePath = url.replace('file://', '');
+                  const fs = await import('fs/promises');
+                  return fs.readFile(filePath, 'utf-8');
+                } else {
+                  const response = await fetch(url);
+                  if (!response.ok) return null;
+                  return response.text();
+                }
               } catch {
                 return null;
               }

@@ -1,6 +1,8 @@
 # CDP Debug MCP Server
 
-An MCP (Model Context Protocol) server that exposes Chrome DevTools Protocol debugging capabilities, enabling AI assistants to debug JavaScript and TypeScript applications.
+An MCP (Model Context Protocol) server that exposes Chrome DevTools Protocol
+debugging capabilities, enabling AI assistants to debug JavaScript and
+TypeScript applications.
 
 ## Features
 
@@ -35,7 +37,9 @@ Or add to `.mcp.json`:
   "mcpServers": {
     "cdp-debug-mcp": {
       "command": "node",
-      "args": ["/path/to/cdp-debug-mcp/dist/index.js"]
+      "args": [
+        "/path/to/cdp-debug-mcp/dist/index.js"
+      ]
     }
   }
 }
@@ -57,26 +61,26 @@ node --inspect=9229 your-script.js
 
 ### Available tools
 
-| Tool | Description |
-|------|-------------|
-| `connect_debugger` | Connect to a CDP endpoint via WebSocket URL |
-| `disconnect_debugger` | Disconnect from a debugging session |
-| `set_breakpoint` | Set a breakpoint by URL and line number |
-| `remove_breakpoint` | Remove a breakpoint by ID |
-| `list_breakpoints` | List all breakpoints in a session |
-| `resume_execution` | Resume execution after pause |
-| `step_over` | Step over the current statement |
-| `step_into` | Step into a function call |
-| `step_out` | Step out of the current function |
-| `pause_execution` | Pause running execution |
-| `get_call_stack` | Get the current call stack with source locations |
-| `evaluate_expression` | Evaluate a JavaScript expression |
-| `get_scope_variables` | Get variables in a scope |
-| `set_variable_value` | Modify a variable's value |
-| `set_pause_on_exceptions` | Configure exception handling |
-| `get_original_location` | Map generated to original source location |
-| `get_script_source` | Get script source code |
-| `list_scripts` | List loaded scripts |
+| Tool                      | Description                                      |
+|---------------------------|--------------------------------------------------|
+| `connect_debugger`        | Connect to a CDP endpoint via WebSocket URL      |
+| `disconnect_debugger`     | Disconnect from a debugging session              |
+| `set_breakpoint`          | Set a breakpoint by URL and line number          |
+| `remove_breakpoint`       | Remove a breakpoint by ID                        |
+| `list_breakpoints`        | List all breakpoints in a session                |
+| `resume_execution`        | Resume execution after pause                     |
+| `step_over`               | Step over the current statement                  |
+| `step_into`               | Step into a function call                        |
+| `step_out`                | Step out of the current function                 |
+| `pause_execution`         | Pause running execution                          |
+| `get_call_stack`          | Get the current call stack with source locations |
+| `evaluate_expression`     | Evaluate a JavaScript expression                 |
+| `get_scope_variables`     | Get variables in a scope                         |
+| `set_variable_value`      | Modify a variable's value                        |
+| `set_pause_on_exceptions` | Configure exception handling                     |
+| `get_original_location`   | Map generated to original source location        |
+| `get_script_source`       | Get script source code                           |
+| `list_scripts`            | List loaded scripts                              |
 
 ### Example workflow
 
@@ -120,7 +124,8 @@ node --inspect=9229 your-script.js
 
 ## Source map support
 
-The server automatically loads source maps for transpiled code (TypeScript, bundled JavaScript, etc.). When source maps are available:
+The server automatically loads source maps for transpiled code (TypeScript,
+bundled JavaScript, etc.). When source maps are available:
 
 - Call stacks show original source locations
 - Breakpoints can be set on original source files
