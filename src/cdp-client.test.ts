@@ -37,6 +37,7 @@ vi.mock('chrome-remote-interface', () => {
     enable: vi.fn().mockResolvedValue(undefined),
     evaluate: vi.fn().mockResolvedValue({result: {type: 'string', value: 'hello'}}),
     getProperties: vi.fn().mockResolvedValue({result: [{name: 'x', value: {type: 'number', value: 1}}]}),
+    runIfWaitingForDebugger: vi.fn().mockResolvedValue(undefined),
   };
 
   const mockClient = {
@@ -149,6 +150,10 @@ describe('CDPClient', () => {
 
     it('should step out', async () => {
       await expect(cdpClient.stepOut()).resolves.toBeUndefined();
+    });
+
+    it('should run if waiting for debugger', async () => {
+      await expect(cdpClient.runIfWaitingForDebugger()).resolves.toBeUndefined();
     });
   });
 

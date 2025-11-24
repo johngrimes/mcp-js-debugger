@@ -33,6 +33,7 @@ const mockCdpClient = {
   stepOver: vi.fn().mockResolvedValue(undefined),
   stepInto: vi.fn().mockResolvedValue(undefined),
   stepOut: vi.fn().mockResolvedValue(undefined),
+  runIfWaitingForDebugger: vi.fn().mockResolvedValue(undefined),
   evaluateOnCallFrame: vi.fn().mockResolvedValue({
     result: {type: 'number', value: 42},
   }),
@@ -391,11 +392,26 @@ describe('SessionManager', () => {
         expect(mockCdpClient.resume).toHaveBeenCalled();
       });
 
-      it('should throw when not paused', async () => {
+      it('should call runIfWaitingForDebugger when in CONNECTED state', async () => {
+        // Create a new manager and session that stays in CONNECTED state.
+        const freshManager = new SessionManager();
+        const freshSessionId = await freshManager.createSession(
+          'ws://localhost:9229/test'
+        );
+        // Don't trigger paused event - session remains in CONNECTED state.
+
+        await freshManager.resume(freshSessionId);
+
+        expect(mockCdpClient.runIfWaitingForDebugger).toHaveBeenCalled();
+      });
+
+      it('should throw when running', async () => {
         // Simulate resumed state.
         triggerEvent('resumed');
 
-        await expect(manager.resume(sessionId)).rejects.toThrow('is not paused');
+        await expect(manager.resume(sessionId)).rejects.toThrow(
+          'is not paused or waiting for debugger'
+        );
       });
     });
 
