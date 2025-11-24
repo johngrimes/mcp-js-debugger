@@ -27,9 +27,9 @@ import type {ScriptInfo, OriginalLocation} from './types.js';
  * Manages source maps for loaded scripts and provides position mapping.
  */
 export class SourceMapManager {
-  private consumers = new Map<string, SourceMapConsumer>();
-  private sourceMapUrls = new Map<string, string>();
-  private originalSources = new Map<string, string[]>();
+  private readonly consumers = new Map<string, SourceMapConsumer>();
+  private readonly sourceMapUrls = new Map<string, string>();
+  private readonly originalSources = new Map<string, string[]>();
 
   /**
    * Loads a source map for a script.
@@ -87,9 +87,8 @@ export class SourceMapManager {
   ): Promise<boolean> {
     try {
       // Parse the data URL.
-      const match = dataUrl.match(
-        /^data:application\/json;(?:charset=utf-8;)?base64,(.+)$/
-      );
+      const regex = /^data:application\/json;(?:charset=utf-8;)?base64,(.+)$/;
+      const match = regex.exec(dataUrl);
       if (!match) {
         return false;
       }

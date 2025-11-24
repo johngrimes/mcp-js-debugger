@@ -41,7 +41,7 @@ export interface CDPClientEvents {
 export class CDPClient {
   private client: Client | null = null;
   private eventHandlers: Partial<CDPClientEvents> = {};
-  private scripts = new Map<string, ScriptInfo>();
+  private readonly scripts = new Map<string, ScriptInfo>();
   private connected = false;
 
   /**
