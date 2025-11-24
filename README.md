@@ -1,4 +1,4 @@
-# CDP Debug MCP Server
+# MCP JS Debugger
 
 An MCP (Model Context Protocol) server that exposes Chrome DevTools Protocol
 debugging capabilities, enabling AI assistants to debug JavaScript and
@@ -27,7 +27,7 @@ npm run build
 Add to your Claude Code configuration:
 
 ```bash
-claude mcp add cdp-debug-mcp node /path/to/cdp-debug-mcp/dist/index.js
+claude mcp add mcp-js-debugger node /path/to/mcp-js-debugger/dist/index.js
 ```
 
 Or add to `.mcp.json`:
@@ -35,10 +35,10 @@ Or add to `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "cdp-debug-mcp": {
+    "mcp-js-debugger": {
       "command": "node",
       "args": [
-        "/path/to/cdp-debug-mcp/dist/index.js"
+        "/path/to/mcp-js-debugger/dist/index.js"
       ]
     }
   }

@@ -1,5 +1,5 @@
 {
-  "name": "cdp-debug-mcp",
+  "name": "mcp-js-debugger",
   "version": "1.0.0",
   "description": "MCP server exposing Chrome DevTools Protocol debugging capabilities",
   "author": "John Grimes",
@@ -7,7 +7,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "cdp-debug-mcp": "dist/index.js"
+    "mcp-js-debugger": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
