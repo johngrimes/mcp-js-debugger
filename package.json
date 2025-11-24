@@ -14,6 +14,9 @@
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -29,10 +32,12 @@
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.16.0",
     "@typescript-eslint/parser": "^8.16.0",
+    "@vitest/coverage-v8": "^4.0.13",
     "devtools-protocol": "^0.0.1367902",
     "eslint": "^9.15.0",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.47.0"
+    "typescript-eslint": "^8.47.0",
+    "vitest": "^4.0.13"
   },
   "engines": {
     "node": ">=18.0.0"
