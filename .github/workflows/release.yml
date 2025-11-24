@@ -1,6 +1,10 @@
 # Release workflow.
 #
 # Publishes the package to npm when a GitHub release is created.
+# Uses npm trusted publishing with OIDC - no NPM_TOKEN required.
+#
+# NOTE: Disabled until trusted publishing is configured on npmjs.com.
+# To enable: remove the `if: false` condition below.
 #
 # @author John Grimes
 
@@ -12,6 +16,7 @@ on:
 
 jobs:
   publish:
+    if: false  # TODO: Remove after configuring trusted publishing on npmjs.com
     runs-on: ubuntu-latest
 
     permissions:
@@ -28,7 +33,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
@@ -38,12 +43,10 @@ jobs:
         run: bun run lint
 
       - name: Run tests
-        run: bun test
+        run: bun run test
 
       - name: Build
         run: bun run build
 
       - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
