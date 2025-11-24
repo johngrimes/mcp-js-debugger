@@ -43,11 +43,12 @@ export class CDPClient {
     this.client = await CDP(options);
     this.connected = true;
 
+    // Set up event handlers BEFORE enabling domains to catch initial state.
+    this.setupEventHandlers();
+
     // Enable required domains.
     await this.client.Debugger.enable({});
     await this.client.Runtime.enable();
-
-    this.setupEventHandlers();
   }
 
   /**
@@ -163,6 +164,15 @@ export class CDPClient {
   async stepOut(): Promise<void> {
     this.ensureConnected();
     await this.client!.Debugger.stepOut();
+  }
+
+  /**
+   * Resumes execution if waiting for debugger (e.g., --inspect-brk).
+   */
+  async runIfWaitingForDebugger(): Promise<void> {
+    this.ensureConnected();
+    // Type assertion needed as chrome-remote-interface types are incomplete.
+    await (this.client!.Runtime as unknown as {runIfWaitingForDebugger: () => Promise<void>}).runIfWaitingForDebugger();
   }
 
   /**

@@ -256,8 +256,18 @@ export class SessionManager {
    */
   async resume(sessionId: string): Promise<void> {
     const session = this.getSession(sessionId);
-    this.ensurePaused(session);
-    await session.cdpClient.resume();
+    if (session.state === SessionState.PAUSED) {
+      await session.cdpClient.resume();
+    } else if (session.state === SessionState.CONNECTED) {
+      // Handle --inspect-brk: target is waiting for debugger to start.
+      await session.cdpClient.runIfWaitingForDebugger();
+      session.state = SessionState.RUNNING;
+    } else {
+      throw this.createError(
+        ErrorCode.SESSION_INVALID_STATE,
+        `Session ${session.id} is not paused or waiting for debugger`
+      );
+    }
   }
 
   /**
