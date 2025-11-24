@@ -112,6 +112,12 @@ vi.mock('./source-map-manager.js', () => ({
   },
 }));
 
+// Mock fs/promises for testing file:// URL handling in source map loading.
+const mockReadFile = vi.fn().mockResolvedValue('{"version":3,"sources":[]}');
+vi.mock('fs/promises', () => ({
+  readFile: mockReadFile,
+}));
+
 describe('SessionManager', () => {
   let manager: SessionManager;
 
@@ -138,6 +144,7 @@ describe('SessionManager', () => {
       endColumn: 0,
       hash: 'abc123',
     });
+    mockReadFile.mockResolvedValue('{"version":3,"sources":[]}');
 
     manager = new SessionManager();
   });
@@ -145,8 +152,8 @@ describe('SessionManager', () => {
   describe('createSession', () => {
     it('should create a new session and return session ID', async () => {
       const sessionId = await manager.createSession(
-        'ws://localhost:9229/test',
-        'Test Session'
+          'ws://localhost:9229/test',
+          'Test Session'
       );
 
       expect(sessionId).toBe('test-session-id');
@@ -166,7 +173,7 @@ describe('SessionManager', () => {
       mockCdpClient.connect.mockRejectedValue(new Error('Connection refused'));
 
       await expect(
-        manager.createSession('ws://localhost:9229/invalid')
+          manager.createSession('ws://localhost:9229/invalid')
       ).rejects.toThrow('Failed to connect');
     });
   });
@@ -193,7 +200,7 @@ describe('SessionManager', () => {
 
     it('should throw SESSION_NOT_FOUND for unknown session', async () => {
       await expect(manager.destroySession('unknown')).rejects.toThrow(
-        'Session unknown not found'
+          'Session unknown not found'
       );
     });
 
@@ -253,8 +260,8 @@ describe('SessionManager', () => {
   describe('getSessionDetails', () => {
     it('should return detailed session information', async () => {
       const sessionId = await manager.createSession(
-        'ws://localhost:9229/test',
-        'Test Session'
+          'ws://localhost:9229/test',
+          'Test Session'
       );
 
       const details = manager.getSessionDetails(sessionId);
@@ -270,7 +277,7 @@ describe('SessionManager', () => {
 
     it('should throw for unknown session', () => {
       expect(() => manager.getSessionDetails('unknown')).toThrow(
-        'Session unknown not found'
+          'Session unknown not found'
       );
     });
 
@@ -307,11 +314,11 @@ describe('SessionManager', () => {
       const sessionId = await manager.createSession('ws://localhost:9229/test');
 
       const breakpoint = await manager.setBreakpoint(
-        sessionId,
-        'file:///test.js',
-        10,
-        0,
-        'x > 5'
+          sessionId,
+          'file:///test.js',
+          10,
+          0,
+          'x > 5'
       );
 
       expect(breakpoint).toMatchObject({
@@ -339,7 +346,7 @@ describe('SessionManager', () => {
       const sessionId = await manager.createSession('ws://localhost:9229/test');
 
       await expect(
-        manager.removeBreakpoint(sessionId, 'unknown-bp')
+          manager.removeBreakpoint(sessionId, 'unknown-bp')
       ).rejects.toThrow('Breakpoint unknown-bp not found');
     });
   });
@@ -396,7 +403,7 @@ describe('SessionManager', () => {
         // Create a new manager and session that stays in CONNECTED state.
         const freshManager = new SessionManager();
         const freshSessionId = await freshManager.createSession(
-          'ws://localhost:9229/test'
+            'ws://localhost:9229/test'
         );
         // Don't trigger paused event - session remains in CONNECTED state.
 
@@ -410,7 +417,7 @@ describe('SessionManager', () => {
         triggerEvent('resumed');
 
         await expect(manager.resume(sessionId)).rejects.toThrow(
-          'is not paused or waiting for debugger'
+            'is not paused or waiting for debugger'
         );
       });
     });
@@ -588,9 +595,9 @@ describe('SessionManager', () => {
 
       expect(result.result.value).toBe(42);
       expect(mockCdpClient.evaluateOnCallFrame).toHaveBeenCalledWith(
-        'frame-1',
-        'x',
-        true
+          'frame-1',
+          'x',
+          true
       );
     });
   });
@@ -633,7 +640,7 @@ describe('SessionManager', () => {
       });
 
       await expect(
-        manager.getScopeVariables(sessionId, 'invalid-frame', 0)
+          manager.getScopeVariables(sessionId, 'invalid-frame', 0)
       ).rejects.toThrow('Call frame invalid-frame not found');
     });
 
@@ -653,7 +660,7 @@ describe('SessionManager', () => {
       });
 
       await expect(
-        manager.getScopeVariables(sessionId, 'frame-1', 99)
+          manager.getScopeVariables(sessionId, 'frame-1', 99)
       ).rejects.toThrow('Scope at index 99 not found');
     });
   });
@@ -701,10 +708,10 @@ describe('SessionManager', () => {
       await manager.setVariableValue(sessionId, 'frame-1', 0, 'x', '{a: 1}');
 
       expect(mockCdpClient.setVariableValue).toHaveBeenCalledWith(
-        0,
-        'x',
-        {objectId: 'obj-123'},
-        'frame-1'
+          0,
+          'x',
+          {objectId: 'obj-123'},
+          'frame-1'
       );
     });
 
@@ -730,10 +737,10 @@ describe('SessionManager', () => {
       await manager.setVariableValue(sessionId, 'frame-1', 0, 'x', 'Infinity');
 
       expect(mockCdpClient.setVariableValue).toHaveBeenCalledWith(
-        0,
-        'x',
-        {unserializableValue: 'Infinity'},
-        'frame-1'
+          0,
+          'x',
+          {unserializableValue: 'Infinity'},
+          'frame-1'
       );
     });
 
@@ -758,7 +765,7 @@ describe('SessionManager', () => {
       });
 
       await expect(
-        manager.setVariableValue(sessionId, 'frame-1', 0, 'x', 'invalid')
+          manager.setVariableValue(sessionId, 'frame-1', 0, 'x', 'invalid')
       ).rejects.toThrow('Failed to evaluate new value');
     });
   });
@@ -866,7 +873,7 @@ describe('SessionManager', () => {
       const sessionId = await manager.createSession('ws://localhost:9229/test');
 
       await expect(
-        manager.getScriptSource(sessionId, 'unknown-script')
+          manager.getScriptSource(sessionId, 'unknown-script')
       ).rejects.toThrow('Script unknown-script not found');
     });
   });
@@ -938,6 +945,50 @@ describe('SessionManager', () => {
       });
 
       expect(handler).toHaveBeenCalled();
+    });
+
+    it('should use fs.readFile for file:// source map URLs', async () => {
+      // Capture the fetch callback passed to loadSourceMap.
+      let capturedFetchCallback:
+          | ((url: string) => Promise<string | null>)
+          | null = null;
+      mockSourceMapManager.loadSourceMap.mockImplementation(
+          async (
+              _scriptInfo: unknown,
+              fetchCallback: (url: string) => Promise<string | null>
+          ) => {
+            capturedFetchCallback = fetchCallback;
+            return true;
+          }
+      );
+
+      await manager.createSession('ws://localhost:9229/test');
+      triggerEvent('scriptParsed', {
+        scriptId: 'script-new',
+        url: 'file:///path/to/app.js',
+        sourceMapURL: 'app.js.map',
+        startLine: 0,
+        startColumn: 0,
+        endLine: 10,
+        endColumn: 0,
+        hash: 'xyz',
+      });
+
+      // Wait for async operations to complete.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(capturedFetchCallback).not.toBeNull();
+
+      // Call the callback with a file:// URL.
+      const result = await capturedFetchCallback!(
+          'file:///path/to/app.js.map'
+      );
+
+      expect(mockReadFile).toHaveBeenCalledWith(
+          '/path/to/app.js.map',
+          'utf-8'
+      );
+      expect(result).toBe('{"version":3,"sources":[]}');
     });
 
     it('should handle breakpointResolved event', async () => {
