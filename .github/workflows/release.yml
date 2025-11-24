@@ -16,7 +16,6 @@ on:
 
 jobs:
   publish:
-    if: false  # TODO: Remove after configuring trusted publishing on npmjs.com
     runs-on: ubuntu-latest
 
     permissions:

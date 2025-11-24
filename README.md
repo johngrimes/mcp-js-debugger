@@ -28,7 +28,7 @@ npm run build
 Add to your Claude Code configuration:
 
 ```bash
-claude mcp add mcp-js-debugger node /path/to/mcp-js-debugger/dist/index.js
+claude mcp add mcp-js-debugger -- npx mcp-js-debugger
 ```
 
 Or add to `.mcp.json`:
@@ -37,10 +37,8 @@ Or add to `.mcp.json`:
 {
   "mcpServers": {
     "mcp-js-debugger": {
-      "command": "node",
-      "args": [
-        "/path/to/mcp-js-debugger/dist/index.js"
-      ]
+      "command": "npx",
+      "args": ["mcp-js-debugger"]
     }
   }
 }
